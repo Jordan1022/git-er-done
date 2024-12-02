@@ -3,71 +3,82 @@
 import { useState, useEffect } from 'react';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { Chore, ChoreStatus } from '../types/chore';
-import { getFirestore, collection, addDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
-import { app } from '../firebase.config';
+import { collection, addDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { db } from '../firebase.config';
+import ChoreForm from './ChoreForm';
 
 export default function ChoresList() {
     const [chores, setChores] = useState<Chore[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showForm, setShowForm] = useState(false);
-    const [newChore, setNewChore] = useState({
-        title: '',
-        description: '',
-        frequency: 'once' as const,
-        dueDate: ''
-    });
-
     const { user } = useFirebase();
-    const db = getFirestore(app);
 
     // Subscribe to chores
     useEffect(() => {
-        if (!user) return;
+        if (!user) {
+            console.log("No user found");
+            return;
+        }
 
-        const q = query(
-            collection(db, 'chores'),
-            where('status', '==', 'active'),
-            orderBy('createdAt', 'desc')
-        );
+        console.log("Setting up Firestore listener for user:", user.uid);
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const choresList: Chore[] = [];
-            snapshot.forEach((doc) => {
-                choresList.push({ id: doc.id, ...doc.data() } as Chore);
+        try {
+            const q = query(
+                collection(db, 'chores'),
+                where('status', '==', 'active'),
+                orderBy('createdAt', 'desc')
+            );
+
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                console.log("Received Firestore update:", snapshot.size, "documents");
+                const choresList: Chore[] = [];
+                snapshot.forEach((doc) => {
+                    choresList.push({ id: doc.id, ...doc.data() } as Chore);
+                });
+                setChores(choresList);
+                setLoading(false);
+                setError(null); // Clear any previous errors
+            }, (err) => {
+                console.error('Detailed error fetching chores:', err);
+                setError(`Failed to load chores: ${err.message}`);
+                setLoading(false);
             });
-            setChores(choresList);
-            setLoading(false);
-        }, (err) => {
-            console.error('Error fetching chores:', err);
-            setError('Failed to load chores');
-            setLoading(false);
-        });
 
-        return () => unsubscribe();
-    }, [db, user]);
+            return () => {
+                console.log("Cleaning up Firestore listener");
+                unsubscribe();
+            };
+        } catch (err) {
+            console.error('Error setting up chores listener:', err);
+            setError('Failed to set up chores listener');
+            setLoading(false);
+        }
+    }, [user]);
 
-    const addChore = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleAddChore = async (choreData: Partial<Chore>) => {
         if (!user) return;
 
         try {
-            const choreData: Omit<Chore, 'id'> = {
-                title: newChore.title,
-                description: newChore.description,
+            console.log("Adding new chore...");
+            const newChore: Omit<Chore, 'id'> = {
+                ...choreData,
                 status: 'active',
-                frequency: newChore.frequency,
-                dueDate: newChore.dueDate || undefined,
                 createdAt: new Date().toISOString(),
-                createdBy: user.uid
-            };
+                createdBy: user.uid,
+                assignmentType: choreData.assignmentType || 'rotate',
+                assignedTo: choreData.assignedTo || []
+            } as Omit<Chore, 'id'>;
 
-            await addDoc(collection(db, 'chores'), choreData);
-            setNewChore({ title: '', description: '', frequency: 'once', dueDate: '' });
+            console.log("Chore data:", newChore);
+            const docRef = await addDoc(collection(db, 'chores'), newChore);
+            console.log("Chore added successfully with ID:", docRef.id);
+
             setShowForm(false);
+            setError(null);
         } catch (err) {
-            console.error('Error adding chore:', err);
-            setError('Failed to add chore');
+            console.error('Detailed error adding chore:', err);
+            setError(`Failed to add chore: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     };
 
@@ -100,6 +111,17 @@ export default function ChoresList() {
         return <div className="animate-pulse">Loading chores...</div>;
     }
 
+    if (showForm) {
+        return (
+            <div className="bg-white dark:bg-black min-h-screen">
+                <ChoreForm
+                    onSubmit={handleAddChore}
+                    onCancel={() => setShowForm(false)}
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             {error && (
@@ -111,87 +133,12 @@ export default function ChoresList() {
             <div className="flex justify-between items-center">
                 <h2 className="text-xl sm:text-3xl font-bold">Chores List</h2>
                 <button
-                    onClick={() => setShowForm(!showForm)}
+                    onClick={() => setShowForm(true)}
                     className="rounded-full bg-black dark:bg-white text-white dark:text-black px-4 py-2 text-sm sm:text-base hover:opacity-80 transition-opacity"
                 >
-                    {showForm ? 'Cancel' : 'Add Chore'}
+                    Add Chore
                 </button>
             </div>
-
-            {showForm && (
-                <form onSubmit={addChore} className="space-y-4 bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
-                    <div>
-                        <label htmlFor="title" className="block text-sm font-medium mb-1">
-                            Title
-                        </label>
-                        <input
-                            type="text"
-                            id="title"
-                            value={newChore.title}
-                            onChange={(e) => setNewChore({ ...newChore, title: e.target.value })}
-                            className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="description" className="block text-sm font-medium mb-1">
-                            Description
-                        </label>
-                        <textarea
-                            id="description"
-                            value={newChore.description}
-                            onChange={(e) => setNewChore({ ...newChore, description: e.target.value })}
-                            className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
-                            rows={3}
-                        />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="frequency" className="block text-sm font-medium mb-1">
-                                Frequency
-                            </label>
-                            <select
-                                id="frequency"
-                                value={newChore.frequency}
-                                onChange={(e) => setNewChore({ ...newChore, frequency: e.target.value as any })}
-                                className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
-                            >
-                                <option value="once">Once</option>
-                                <option value="daily">Daily</option>
-                                <option value="weekly">Weekly</option>
-                                <option value="monthly">Monthly</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="dueDate" className="block text-sm font-medium mb-1">
-                                Due Date
-                            </label>
-                            <input
-                                type="date"
-                                id="dueDate"
-                                value={newChore.dueDate}
-                                onChange={(e) => setNewChore({ ...newChore, dueDate: e.target.value })}
-                                className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
-                            />
-                        </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setShowForm(false)}
-                            className="px-4 py-2 text-sm border rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            className="px-4 py-2 text-sm bg-black dark:bg-white text-white dark:text-black rounded-full hover:opacity-80"
-                        >
-                            Add Chore
-                        </button>
-                    </div>
-                </form>
-            )}
 
             <div className="space-y-4">
                 {chores.length === 0 ? (

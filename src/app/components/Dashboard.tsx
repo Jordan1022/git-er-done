@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useFirebase } from '../contexts/FirebaseContext';
 import { getAuth, signOut } from 'firebase/auth';
 import ChoresList from './ChoresList';
+import FamilyList from './FamilyList';
 
 type Tab = 'chores' | 'schedule' | 'family' | 'profile' | 'settings';
 
@@ -71,8 +72,7 @@ export default function Dashboard() {
             case 'family':
                 return (
                     <div className="p-4 sm:p-6">
-                        <h2 className="text-xl sm:text-3xl font-bold mb-4">Family Members</h2>
-                        <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Family members list coming soon...</p>
+                        <FamilyList />
                     </div>
                 );
             case 'profile':
