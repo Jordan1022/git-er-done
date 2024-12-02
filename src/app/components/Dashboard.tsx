@@ -5,6 +5,7 @@ import { useFirebase } from '../contexts/FirebaseContext';
 import { getAuth, signOut } from 'firebase/auth';
 import ChoresList from './ChoresList';
 import FamilyList from './FamilyList';
+import { useTheme } from '../contexts/ThemeContext';
 
 type Tab = 'chores' | 'schedule' | 'family' | 'profile' | 'settings';
 
@@ -14,6 +15,7 @@ export default function Dashboard() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const { user } = useFirebase();
     const auth = getAuth();
+    const { theme, toggleTheme } = useTheme();
 
     const handleSignOut = async () => {
         setIsLoading(true);
@@ -89,7 +91,41 @@ export default function Dashboard() {
                 return (
                     <div className="p-4 sm:p-6">
                         <h2 className="text-xl sm:text-3xl font-bold mb-4">Settings</h2>
-                        <div className="space-y-8">
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="text-lg sm:text-2xl font-semibold mb-3">Theme</h3>
+                                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                                    <div>
+                                        <p className="font-medium">Dark Mode</p>
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                            {theme === 'dark' ? 'Currently using dark theme' : 'Currently using light theme'}
+                                        </p>
+                                    </div>
+                                    <div className="relative">
+                                        <button
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={theme === 'dark'}
+                                            onClick={toggleTheme}
+                                            className={`
+                                                relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent 
+                                                transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                                                ${theme === 'dark' ? 'bg-blue-600' : 'bg-gray-200'}
+                                            `}
+                                        >
+                                            <span className="sr-only">Toggle theme</span>
+                                            <span
+                                                aria-hidden="true"
+                                                className={`
+                                                    pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 
+                                                    transition duration-200 ease-in-out
+                                                    ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0'}
+                                                `}
+                                            />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                             <div>
                                 <h3 className="text-lg sm:text-2xl font-semibold mb-3">Account</h3>
                                 <button
@@ -99,14 +135,6 @@ export default function Dashboard() {
                                 >
                                     {isLoading ? 'Signing Out...' : 'Sign Out'}
                                 </button>
-                            </div>
-                            <div>
-                                <h3 className="text-lg sm:text-2xl font-semibold mb-3">Notifications</h3>
-                                <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Notification settings coming soon...</p>
-                            </div>
-                            <div>
-                                <h3 className="text-lg sm:text-2xl font-semibold mb-3">Theme</h3>
-                                <p className="text-gray-600 dark:text-gray-400 text-sm sm:text-base">Theme settings coming soon...</p>
                             </div>
                         </div>
                     </div>
