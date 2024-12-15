@@ -163,24 +163,33 @@ export default function ChoresList() {
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => updateChoreStatus(chore.id, 'completed')}
-                                        className="text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
+                                        className="px-3 py-1.5 rounded-lg bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
                                         title="Mark as completed"
                                     >
-                                        ✓
+                                        <span className="flex items-center gap-1">
+                                            <span>✓</span>
+                                            <span className="text-sm">Done</span>
+                                        </span>
                                     </button>
                                     <button
                                         onClick={() => updateChoreStatus(chore.id, 'archived')}
-                                        className="text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300"
+                                        className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                                         title="Archive"
                                     >
-                                        📁
+                                        <span className="flex items-center gap-1">
+                                            <span>📁</span>
+                                            <span className="text-sm">Archive</span>
+                                        </span>
                                     </button>
                                     <button
                                         onClick={() => deleteChore(chore.id)}
-                                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                        className="px-3 py-1.5 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                                         title="Delete"
                                     >
-                                        🗑
+                                        <span className="flex items-center gap-1">
+                                            <span>🗑</span>
+                                            <span className="text-sm">Delete</span>
+                                        </span>
                                     </button>
                                 </div>
                             </div>
