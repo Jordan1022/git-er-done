@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useFirebase } from '../contexts/FirebaseContext';
-import { getAuth, signOut } from 'firebase/auth';
+import { getAuth, signOut, updateProfile } from 'firebase/auth';
 import ChoresList from './ChoresList';
 import FamilyList from './FamilyList';
 import { useTheme } from '../contexts/ThemeContext';
@@ -16,6 +16,9 @@ export default function Dashboard() {
     const { user } = useFirebase();
     const auth = getAuth();
     const { theme, toggleTheme } = useTheme();
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [newDisplayName, setNewDisplayName] = useState(user?.displayName || '');
+    const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
     const handleSignOut = async () => {
         setIsLoading(true);
@@ -25,6 +28,22 @@ export default function Dashboard() {
             console.error('Sign out error:', error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleUpdateDisplayName = async () => {
+        if (!user) return;
+
+        setIsUpdatingProfile(true);
+        try {
+            await updateProfile(user, {
+                displayName: newDisplayName
+            });
+            setIsEditingName(false);
+        } catch (error) {
+            console.error('Error updating display name:', error);
+        } finally {
+            setIsUpdatingProfile(false);
         }
     };
 
@@ -83,7 +102,46 @@ export default function Dashboard() {
                         <h2 className="text-xl sm:text-3xl font-bold mb-4">Profile</h2>
                         <div className="space-y-3 text-sm sm:text-base">
                             <p><strong>Email:</strong> {user?.email}</p>
-                            <p><strong>Name:</strong> {user?.displayName || 'Not set'}</p>
+                            <div className="flex flex-col gap-2">
+                                <strong>Name:</strong>
+                                {isEditingName ? (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newDisplayName}
+                                            onChange={(e) => setNewDisplayName(e.target.value)}
+                                            className="px-3 py-1 border rounded-lg dark:bg-gray-800 dark:border-gray-700"
+                                            placeholder="Enter your name"
+                                        />
+                                        <button
+                                            onClick={handleUpdateDisplayName}
+                                            disabled={isUpdatingProfile}
+                                            className="px-4 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                                        >
+                                            {isUpdatingProfile ? 'Saving...' : 'Save'}
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setIsEditingName(false);
+                                                setNewDisplayName(user?.displayName || '');
+                                            }}
+                                            className="px-4 py-1 border border-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2 items-center">
+                                        <span>{user?.displayName || 'Not set'}</span>
+                                        <button
+                                            onClick={() => setIsEditingName(true)}
+                                            className="text-blue-500 hover:text-blue-600"
+                                        >
+                                            Edit
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 );
