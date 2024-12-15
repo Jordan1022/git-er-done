@@ -2,141 +2,132 @@
 
 import { useState, useEffect } from 'react';
 import { useFirebase } from '../contexts/FirebaseContext';
-import { FamilyMember } from '../types/family';
-import { collection, addDoc, doc, deleteDoc, onSnapshot, query, where, orderBy, getDocs } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase.config';
-
-type NewFamilyMember = {
-    name: string;
-    email: string;
-    role: 'parent' | 'child';
-};
+import { FamilyMember, FamilyInvite, FamilyRole } from '../types/family';
 
 export default function FamilyList() {
-    const [members, setMembers] = useState<FamilyMember[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [showForm, setShowForm] = useState(false);
-    const [newMember, setNewMember] = useState<NewFamilyMember>({
-        name: '',
-        email: '',
-        role: 'child'
-    });
-
     const { user } = useFirebase();
+    const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+    const [invites, setInvites] = useState<FamilyInvite[]>([]);
+    const [newMemberEmail, setNewMemberEmail] = useState('');
+    const [newMemberRole, setNewMemberRole] = useState<FamilyRole>('child');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
 
-    // Fetch family members
     useEffect(() => {
-        if (!user) {
-            console.log("No user found, cannot fetch family members");
+        if (!user) return;
+
+        // Subscribe to family members
+        const membersQuery = query(
+            collection(db, 'familyMembers'),
+            where('familyId', '==', user.uid)
+        );
+
+        const unsubscribeMembers = onSnapshot(membersQuery, (snapshot) => {
+            const members: FamilyMember[] = [];
+            snapshot.forEach((doc) => {
+                members.push({ id: doc.id, ...doc.data() } as FamilyMember);
+            });
+            setFamilyMembers(members);
             setLoading(false);
-            return;
-        }
+        });
 
-        console.log("Starting to fetch family members for user:", user.uid);
+        // Subscribe to invites
+        const invitesQuery = query(
+            collection(db, 'familyInvites'),
+            where('familyId', '==', user.uid)
+        );
 
-        const fetchMembers = async () => {
-            try {
-                // Check if user is already part of a family
-                const userMemberQuery = query(
-                    collection(db, 'familyMembers'),
-                    where('userId', '==', user.uid)
-                );
+        const unsubscribeInvites = onSnapshot(invitesQuery, (snapshot) => {
+            const currentInvites: FamilyInvite[] = [];
+            snapshot.forEach((doc) => {
+                currentInvites.push({ id: doc.id, ...doc.data() } as FamilyInvite);
+            });
+            setInvites(currentInvites);
+        });
 
-                const userMemberDocs = await getDocs(userMemberQuery);
-                let familyId = user.uid; // Default to user's ID
-
-                if (!userMemberDocs.empty) {
-                    // User is already part of a family
-                    const userData = userMemberDocs.docs[0].data() as FamilyMember;
-                    familyId = userData.familyId;
-                } else {
-                    // Create the first family member (the current user)
-                    console.log("Creating first family member for user");
-                    const firstMemberData: Omit<FamilyMember, 'id'> = {
-                        name: user.displayName || 'Parent',
-                        email: user.email || '',
-                        role: 'parent',
-                        userId: user.uid,
-                        familyId: user.uid,
-                        createdAt: new Date().toISOString()
-                    };
-                    await addDoc(collection(db, 'familyMembers'), firstMemberData);
-                }
-
-                // Set up real-time listener for family members
-                console.log("Setting up listener for family:", familyId);
-                const q = query(
-                    collection(db, 'familyMembers'),
-                    where('familyId', '==', familyId),
-                    orderBy('createdAt', 'desc')
-                );
-
-                const unsubscribe = onSnapshot(q,
-                    (snapshot) => {
-                        console.log("Received family members update:", snapshot.size, "members");
-                        const membersList: FamilyMember[] = [];
-                        snapshot.forEach((doc) => {
-                            membersList.push({ id: doc.id, ...doc.data() } as FamilyMember);
-                        });
-                        setMembers(membersList);
-                        setLoading(false);
-                        setError(null);
-                    },
-                    (err) => {
-                        console.error('Error in family members listener:', err);
-                        setError(`Failed to load family members: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                        setLoading(false);
-                    }
-                );
-
-                return () => unsubscribe();
-            } catch (err) {
-                console.error('Error in fetchMembers:', err);
-                setError(`Failed to set up family members: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                setLoading(false);
-            }
+        return () => {
+            unsubscribeMembers();
+            unsubscribeInvites();
         };
-
-        fetchMembers();
     }, [user]);
 
-    const addMember = async (e: React.FormEvent<HTMLFormElement>) => {
+    const inviteMember = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!user) return;
 
         try {
-            console.log("Adding new family member");
-            const memberData: Omit<FamilyMember, 'id'> = {
-                name: newMember.name,
-                email: newMember.email,
-                role: newMember.role,
-                userId: '', // This will be set when the member creates their account
+            setError('');
+
+            // Check if email is already invited
+            const existingInvite = invites.find(invite =>
+                invite.email === newMemberEmail && invite.status === 'pending'
+            );
+            if (existingInvite) {
+                setError('This email has already been invited');
+                return;
+            }
+
+            // Check if email is already a member
+            const existingMember = familyMembers.find(member =>
+                member.email === newMemberEmail
+            );
+            if (existingMember) {
+                setError('This person is already a family member');
+                return;
+            }
+
+            // Create invite token
+            const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
+
+            // Create invite document
+            const invite: Omit<FamilyInvite, 'id'> = {
+                email: newMemberEmail,
+                role: newMemberRole,
                 familyId: user.uid,
-                createdAt: new Date().toISOString()
+                invitedBy: user.uid,
+                invitedAt: new Date().toISOString(),
+                status: 'pending',
+                token
             };
 
-            console.log("Member data:", memberData);
-            const docRef = await addDoc(collection(db, 'familyMembers'), memberData);
-            console.log("Member added successfully with ID:", docRef.id);
+            await addDoc(collection(db, 'familyInvites'), invite);
 
-            setNewMember({ name: '', email: '', role: 'child' });
-            setShowForm(false);
-            setError(null);
+            // TODO: Send email invitation
+            // This would typically be handled by a Cloud Function
+            console.log(`Invitation link: /join-family/${token}`);
+
+            setNewMemberEmail('');
+            setNewMemberRole('child');
         } catch (err) {
-            console.error('Error adding family member:', err);
-            setError(`Failed to add family member: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setError('Failed to send invite');
+            console.error('Error inviting member:', err);
         }
     };
 
-    const deleteMember = async (memberId: string) => {
-        if (!confirm('Are you sure you want to remove this family member?')) return;
-
+    const resendInvite = async (invite: FamilyInvite) => {
         try {
-            await deleteDoc(doc(db, 'familyMembers', memberId));
+            const inviteRef = doc(db, 'familyInvites', invite.id);
+            await updateDoc(inviteRef, {
+                invitedAt: new Date().toISOString(),
+            });
+            // TODO: Resend email invitation
         } catch (err) {
-            console.error('Error removing family member:', err);
-            setError(`Failed to remove family member: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setError('Failed to resend invite');
+            console.error('Error resending invite:', err);
+        }
+    };
+
+    const cancelInvite = async (invite: FamilyInvite) => {
+        try {
+            const inviteRef = doc(db, 'familyInvites', invite.id);
+            await updateDoc(inviteRef, {
+                status: 'declined'
+            });
+        } catch (err) {
+            setError('Failed to cancel invite');
+            console.error('Error canceling invite:', err);
         }
     };
 
@@ -146,128 +137,103 @@ export default function FamilyList() {
 
     return (
         <div className="space-y-6">
-            {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 p-3 rounded text-sm">
-                    {error}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+                <h2 className="text-xl font-semibold mb-4">Family Members</h2>
+                <div className="space-y-4">
+                    {familyMembers.map((member) => (
+                        <div key={member.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div className="flex items-center space-x-3">
+                                {member.avatar ? (
+                                    <img src={member.avatar} alt={member.name} className="w-10 h-10 rounded-full" />
+                                ) : (
+                                    <div className="w-10 h-10 bg-gray-200 dark:bg-gray-600 rounded-full flex items-center justify-center">
+                                        <span className="text-lg">{member.name[0]}</span>
+                                    </div>
+                                )}
+                                <div>
+                                    <p className="font-medium">{member.name}</p>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">{member.role}</p>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Pending Invites Section */}
+            {invites.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+                    <h2 className="text-xl font-semibold mb-4">Pending Invites</h2>
+                    <div className="space-y-4">
+                        {invites.filter(invite => invite.status === 'pending').map((invite) => (
+                            <div key={invite.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div>
+                                    <p className="font-medium">{invite.email}</p>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                                        Invited {new Date(invite.invitedAt).toLocaleDateString()}
+                                    </p>
+                                </div>
+                                <div className="space-x-2">
+                                    <button
+                                        onClick={() => resendInvite(invite)}
+                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                    >
+                                        Resend
+                                    </button>
+                                    <button
+                                        onClick={() => cancelInvite(invite)}
+                                        className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl sm:text-3xl font-bold">Family Members</h2>
-                <button
-                    onClick={() => setShowForm(true)}
-                    className="rounded-full bg-black dark:bg-white text-white dark:text-black px-4 py-2 text-sm sm:text-base hover:opacity-80 transition-opacity"
-                >
-                    Add Member
-                </button>
-            </div>
-
-            {showForm && (
-                <form onSubmit={addMember} className="space-y-4 bg-gray-50 dark:bg-gray-900 p-4 rounded-lg">
+            {/* Invite Form */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-sm">
+                <h2 className="text-xl font-semibold mb-4">Invite Family Member</h2>
+                <form onSubmit={inviteMember} className="space-y-4">
                     <div>
-                        <label htmlFor="name" className="block text-sm font-medium mb-1">
-                            Name
-                        </label>
-                        <input
-                            type="text"
-                            id="name"
-                            value={newMember.name}
-                            onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                            className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="email" className="block text-sm font-medium mb-1">
-                            Email
+                        <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Email Address
                         </label>
                         <input
                             type="email"
                             id="email"
-                            value={newMember.email}
-                            onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                            className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
+                            value={newMemberEmail}
+                            onChange={(e) => setNewMemberEmail(e.target.value)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                             required
                         />
                     </div>
                     <div>
-                        <label htmlFor="role" className="block text-sm font-medium mb-1">
+                        <label htmlFor="role" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                             Role
                         </label>
                         <select
                             id="role"
-                            value={newMember.role}
-                            onChange={(e) => setNewMember({ ...newMember, role: e.target.value as 'parent' | 'child' })}
-                            className="w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-700"
+                            value={newMemberRole}
+                            onChange={(e) => setNewMemberRole(e.target.value as FamilyRole)}
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
                         >
                             <option value="child">Child</option>
                             <option value="parent">Parent</option>
                         </select>
                     </div>
-                    <div className="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setShowForm(false)}
-                            className="px-4 py-2 text-sm border rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            className="px-4 py-2 text-sm bg-black dark:bg-white text-white dark:text-black rounded-full hover:opacity-80"
-                        >
-                            Add Member
-                        </button>
-                    </div>
+                    {error && (
+                        <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
+                    )}
+                    <button
+                        type="submit"
+                        className="w-full bg-blue-600 text-white rounded-md py-2 px-4 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    >
+                        Send Invite
+                    </button>
                 </form>
-            )}
-
-            <div className="space-y-4">
-                {members.length === 0 ? (
-                    <p className="text-gray-500 dark:text-gray-400 text-center py-8">
-                        No family members yet. Add your first family member!
-                    </p>
-                ) : (
-                    members.map((member) => (
-                        <div
-                            key={member.id}
-                            className="flex items-center justify-between p-4 border dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-900"
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
-                                    {member.avatar ? (
-                                        <img
-                                            src={member.avatar}
-                                            alt={member.name}
-                                            className="w-full h-full rounded-full object-cover"
-                                        />
-                                    ) : (
-                                        <span className="text-xl">
-                                            {member.name.charAt(0).toUpperCase()}
-                                        </span>
-                                    )}
-                                </div>
-                                <div>
-                                    <h3 className="font-medium">{member.name}</h3>
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                                        {member.email}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <span className="text-sm px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded">
-                                    {member.role}
-                                </span>
-                                <button
-                                    onClick={() => deleteMember(member.id)}
-                                    className="text-red-500 hover:text-red-600"
-                                >
-                                    ×
-                                </button>
-                            </div>
-                        </div>
-                    ))
-                )}
             </div>
         </div>
     );
