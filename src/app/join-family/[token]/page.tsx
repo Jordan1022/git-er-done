@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useFirebase } from '../../contexts/FirebaseContext';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase.config';
 import { FamilyInvite, FamilyMember } from '../../types/family';
 
-export default function JoinFamily({ params }: { params: { token: string } }) {
+export default function JoinFamily() {
     const router = useRouter();
+    const params = useParams<{ token: string }>();
+    const token = params.token;
     const { user } = useFirebase();
     const [invite, setInvite] = useState<FamilyInvite | null>(null);
     const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ export default function JoinFamily({ params }: { params: { token: string } }) {
                 const invitesRef = collection(db, 'familyInvites');
                 const q = query(
                     invitesRef,
-                    where('token', '==', params.token),
+                    where('token', '==', token),
                     where('status', '==', 'pending')
                 );
                 const querySnapshot = await getDocs(q);
@@ -57,7 +59,7 @@ export default function JoinFamily({ params }: { params: { token: string } }) {
         if (user) {
             fetchInvite();
         }
-    }, [params.token, user]);
+    }, [token, user]);
 
     const handleJoin = async (e: React.FormEvent) => {
         e.preventDefault();
